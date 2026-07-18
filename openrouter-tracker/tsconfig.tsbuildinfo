@@ -1,0 +1,1 @@
+{"version":"7.0.2","root":["./src/api.ts","./src/extension.ts","./src/webview/content.ts"],"packageJsons":["./node_modules/@types/vscode/package.json","./package.json"],"missingPackageJsons":["./node_modules/vscode/package.json"]}
