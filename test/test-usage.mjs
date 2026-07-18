@@ -197,6 +197,77 @@ async function getBudgetTracking(guardrailsBody) {
   console.log(`  Projected monthly: $${((spent / Math.max(1, 30 - (days ?? 0))) * 30).toFixed(6)}`);
 }
 
+// ── 4. Model breakdown — Analytics API (requires Management Key) ───────
+async function getModelBreakdown() {
+  console.log('\n══════════════════════════════════════════════');
+  console.log('  📦 MODEL BREAKDOWN (this month)');
+  console.log('══════════════════════════════════════════════');
+
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+
+  const res = await fetch(`${BASE}/analytics/query`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${MGMT_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      metrics: ['total_usage', 'request_count', 'tokens_total', 'cache_hit_rate'],
+      dimensions: ['model'],
+      order_by: { field: 'total_usage', direction: 'desc' },
+      time_range: { start: monthStart, end: monthEnd },
+      limit: 20,
+    }),
+  });
+
+  if (res.status === 401) {
+    console.log('  ⚠️  Analytics API requires a Management Key');
+    return;
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const body = await res.json();
+  const rows = body.data?.data ?? [];
+
+  if (!rows.length) {
+    console.log('  (no usage data for this month)');
+    return;
+  }
+
+  // Compute total for percentages
+  const totalUsage = rows.reduce((s, r) => s + r.total_usage, 0);
+
+  // Header
+  console.log('  Model'.padEnd(45) + 'Cost'.padStart(12) + '%'.padStart(8) + 'Req'.padStart(6) + 'Tokens'.padStart(12) + 'Cache'.padStart(8));
+  console.log('  ' + '─'.repeat(88));
+
+  for (const r of rows) {
+    const model = r.model.length > 42 ? r.model.slice(0, 39) + '…' : r.model;
+    const cost = `$${r.total_usage.toFixed(6)}`;
+    const pct = ((r.total_usage / totalUsage) * 100).toFixed(1) + '%';
+    const reqs = r.request_count?.toString() ?? '0';
+    const tokens = r.tokens_total ? (parseInt(r.tokens_total) / 1000).toFixed(0) + 'k' : '0';
+    const cache = r.cache_hit_rate != null ? (r.cache_hit_rate * 100).toFixed(0) + '%' : '-';
+
+    console.log(`  ${model.padEnd(45)}${cost.padStart(12)}${pct.padStart(8)}${reqs.padStart(6)}${tokens.padStart(12)}${cache.padStart(8)}`);
+  }
+
+  console.log('  ' + '─'.repeat(88));
+
+  // Summary
+  const totalTokens = rows.reduce((s, r) => s + parseInt(r.tokens_total || '0'), 0);
+  const totalReqs = rows.reduce((s, r) => s + parseInt(r.request_count || '0'), 0);
+  const blendedRate = totalTokens > 0 ? (totalUsage / totalTokens * 1_000_000).toFixed(2) : 'N/A';
+  console.log(`  TOTAL`.padEnd(45) + `$${totalUsage.toFixed(6)}`.padStart(12) + `100%`.padStart(8) + `${totalReqs}`.padStart(6) + `${(totalTokens/1000).toFixed(0)}k`.padStart(12));
+  console.log(`  Blended rate: $${blendedRate}/M tok`);
+  console.log(`  Query time: ${body.data?.metadata?.query_time_ms ?? '?'}ms  |  ${rows.length} models`);
+}
+
 // ── Main ───────────────────────────────────────────────────────────────
 async function main() {
   console.log('══════════════════════════════════════════════');
@@ -221,6 +292,12 @@ async function main() {
     await getBudgetTracking(guardrailsData);
   } catch (e) {
     console.error('\n❌ Budget tracking failed:', e.message);
+  }
+
+  try {
+    await getModelBreakdown();
+  } catch (e) {
+    console.error('\n❌ Model breakdown failed:', e.message);
   }
 
   console.log('\n══════════════════════════════════════════════');
