@@ -43,14 +43,15 @@ let api = null;
 let currentData = null;
 let refreshTimer = null;
 let selectedKeyHash = null;
-let selectedPeriod = 'monthly';
 // ── Activate ───────────────────────────────────────────────────────────
 function activate(context) {
     console.log('[OpenRouter] Activating extension');
-    // Status bar
+    // Status bar — show immediately from startup
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBarItem.command = 'openrouter.openDashboard';
-    statusBarItem.tooltip = 'Click to open OpenRouter Dashboard';
+    statusBarItem.text = '$(graph) OpenRouter';
+    statusBarItem.tooltip = 'OpenRouter: loading...';
+    statusBarItem.show();
     context.subscriptions.push(statusBarItem);
     // Commands
     context.subscriptions.push(vscode.commands.registerCommand('openrouter.openDashboard', () => openDashboard(context)), vscode.commands.registerCommand('openrouter.refresh', () => refreshData()));
@@ -73,7 +74,6 @@ async function init() {
     api = new api_1.OpenRouterAPI(mgmtKey);
     // Load saved key selection
     selectedKeyHash = config.get('apiKeyId') || null;
-    selectedPeriod = config.get('defaultPeriod') || 'monthly';
     await refreshData();
     // Auto-refresh timer
     const interval = config.get('refreshInterval') || 300;
@@ -102,7 +102,7 @@ async function refreshData() {
             targetHash = keys.find(k => !k.disabled)?.hash ?? keys[0].hash;
         }
         // Fetch all data
-        currentData = await api.getAllForKey(targetHash, selectedPeriod);
+        currentData = await api.getAllForKey(targetHash);
         selectedKeyHash = targetHash;
         // Save selected key to settings
         vscode.workspace.getConfiguration('openrouter').update('apiKeyId', targetHash, true);
@@ -125,17 +125,57 @@ function updateStatusBarFromData(data) {
         updateStatusBar('⚠️ No data', 'OpenRouter: No key data');
         return;
     }
-    // Show: monthly usage / guardrail limit
-    const usage = key.usage_monthly ?? 0;
-    let text = `$${usage.toFixed(2)}`;
-    if (data.budget) {
-        const pct = data.budget.pct;
-        text += ` / $${data.budget.limit.toFixed(0)}`;
-        if (pct > 80) {
+    const budget = data.budget;
+    let text;
+    let tooltip;
+    if (budget) {
+        const pct = Math.round(budget.pct);
+        text = `$${budget.spent.toFixed(2)} / $${budget.limit.toFixed(0)} (${pct}%)`;
+        if (budget.pct > 80) {
             text = `$(warning) ${text}`;
         }
+        const intervalLabel = budget.interval.charAt(0).toUpperCase() + budget.interval.slice(1);
+        const resetStr = budget.resetDate
+            ? new Date(budget.resetDate).toUTCString().slice(5, 22)
+            : 'Never';
+        // Visual bar: 20 chars wide
+        const barLen = 20;
+        const filled = Math.round((budget.pct / 100) * barLen);
+        const barChar = budget.pct > 80 ? '█' : '■';
+        const bar = barChar.repeat(Math.min(filled, barLen)) + '·'.repeat(Math.max(0, barLen - filled));
+        tooltip = [
+            `OpenRouter: ${key.name || key.label}`,
+            ``,
+            ` Budget  $${budget.spent.toFixed(2)} / $${budget.limit.toFixed(0)}`,
+            ` ${bar}  ${pct}%`,
+            ` Used: ${pct}%`,
+            ` Remaining: $${budget.remaining.toFixed(2)}`,
+            ` Interval: ${intervalLabel}`,
+            ` Reset: ${resetStr} (${budget.daysUntilReset}d)`,
+            ` ───────────────────────────`,
+            ` This ${budget.interval}: $${budget.spent.toFixed(4)}`,
+            ` All time: $${key.usage.toFixed(4)}`,
+            ` Models: ${data.modelBreakdown?.rows.length ?? 0} active`,
+            ``,
+            `Click to open dashboard`,
+        ].join('\n');
     }
-    updateStatusBar(text, `OpenRouter: ${key.name || key.label}\n$${usage.toFixed(4)} used this month`);
+    else {
+        text = `$${(key.usage_monthly ?? 0).toFixed(2)}`;
+        tooltip = [
+            `OpenRouter: ${key.name || key.label}`,
+            ``,
+            ` Monthly: $${(key.usage_monthly ?? 0).toFixed(4)}`,
+            ` Weekly:  $${(key.usage_weekly ?? 0).toFixed(4)}`,
+            ` Daily:   $${(key.usage_daily ?? 0).toFixed(4)}`,
+            ` All time: $${(key.usage ?? 0).toFixed(4)}`,
+            ` ───────────────────────────`,
+            ` No budget limit set for the current key`,
+            ``,
+            `Click to open dashboard`,
+        ].join('\n');
+    }
+    updateStatusBar(text, tooltip);
 }
 // ── Dashboard Webview ─────────────────────────────────────────────────
 async function openDashboard(context) {
@@ -148,23 +188,17 @@ async function openDashboard(context) {
         switch (msg.type) {
             case 'ready':
                 // Send initial data
-                panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+                panel.webview.postMessage({ type: 'data', data: currentData });
                 break;
             case 'refresh':
                 await refreshData();
-                panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+                panel.webview.postMessage({ type: 'data', data: currentData });
                 break;
             case 'selectKey':
                 selectedKeyHash = msg.keyHash;
                 await vscode.workspace.getConfiguration('openrouter').update('apiKeyId', msg.keyHash, true);
                 await refreshData();
-                panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
-                break;
-            case 'changePeriod':
-                selectedPeriod = msg.period;
-                await vscode.workspace.getConfiguration('openrouter').update('defaultPeriod', msg.period, true);
-                await refreshData();
-                panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+                panel.webview.postMessage({ type: 'data', data: currentData });
                 break;
             case 'openSettings':
                 vscode.commands.executeCommand('workbench.action.openSettings', 'openrouter');

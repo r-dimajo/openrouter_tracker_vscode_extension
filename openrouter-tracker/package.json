@@ -40,16 +40,6 @@
           "type": "string",
           "default": "",
           "description": "Specific API key hash to track (leave empty to auto-detect first key)"
-        },
-        "openrouter.defaultPeriod": {
-          "type": "string",
-          "enum": [
-            "daily",
-            "weekly",
-            "monthly"
-          ],
-          "default": "monthly",
-          "description": "Default period for model breakdown"
         }
       }
     }

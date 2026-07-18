@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { OpenRouterAPI, type AllData, type KeyInfo } from './api';
+import { OpenRouterAPI, type AllData } from './api';
 import { getWebviewContent } from './webview/content';
 
 let statusBarItem: vscode.StatusBarItem;
@@ -7,17 +7,18 @@ let api: OpenRouterAPI | null = null;
 let currentData: AllData | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let selectedKeyHash: string | null = null;
-let selectedPeriod: 'daily' | 'weekly' | 'monthly' = 'monthly';
 
 // ── Activate ───────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('[OpenRouter] Activating extension');
 
-  // Status bar
+  // Status bar — show immediately from startup
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'openrouter.openDashboard';
-  statusBarItem.tooltip = 'Click to open OpenRouter Dashboard';
+  statusBarItem.text = '$(graph) OpenRouter';
+  statusBarItem.tooltip = 'OpenRouter: loading...';
+  statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   // Commands
@@ -53,7 +54,6 @@ async function init() {
 
   // Load saved key selection
   selectedKeyHash = config.get<string>('apiKeyId') || null;
-  selectedPeriod = (config.get<string>('defaultPeriod') as any) || 'monthly';
 
   await refreshData();
 
@@ -88,7 +88,7 @@ async function refreshData() {
     }
 
     // Fetch all data
-    currentData = await api.getAllForKey(targetHash, selectedPeriod);
+    currentData = await api.getAllForKey(targetHash);
     selectedKeyHash = targetHash;
 
     // Save selected key to settings
@@ -116,19 +116,61 @@ function updateStatusBarFromData(data: AllData) {
     return;
   }
 
-  // Show: monthly usage / guardrail limit
-  const usage = key.usage_monthly ?? 0;
-  let text = `$${usage.toFixed(2)}`;
+  const budget = data.budget;
+  let text: string;
+  let tooltip: string;
 
-  if (data.budget) {
-    const pct = data.budget.pct;
-    text += ` / $${data.budget.limit.toFixed(0)}`;
-    if (pct > 80) {
+  if (budget) {
+    const pct = Math.round(budget.pct);
+    text = `$${budget.spent.toFixed(2)} / $${budget.limit.toFixed(0)} (${pct}%)`;
+    if (budget.pct > 80) {
       text = `$(warning) ${text}`;
     }
+
+    const intervalLabel = budget.interval.charAt(0).toUpperCase() + budget.interval.slice(1);
+    const resetStr = budget.resetDate
+      ? new Date(budget.resetDate).toUTCString().slice(5, 22)
+      : 'Never';
+
+    // Visual bar: 20 chars wide
+    const barLen = 20;
+    const filled = Math.round((budget.pct / 100) * barLen);
+    const barChar = budget.pct > 80 ? '█' : '■';
+    const bar = barChar.repeat(Math.min(filled, barLen)) + '·'.repeat(Math.max(0, barLen - filled));
+
+    tooltip = [
+      `OpenRouter: ${key.name || key.label}`,
+      ``,
+      ` Budget  $${budget.spent.toFixed(2)} / $${budget.limit.toFixed(0)}`,
+      ` ${bar}  ${pct}%`,
+      ` Used: ${pct}%`,
+      ` Remaining: $${budget.remaining.toFixed(2)}`,
+      ` Interval: ${intervalLabel}`,
+      ` Reset: ${resetStr} (${budget.daysUntilReset}d)`,
+      ` ───────────────────────────`,
+      ` This ${budget.interval}: $${budget.spent.toFixed(4)}`,
+      ` All time: $${key.usage.toFixed(4)}`,
+      ` Models: ${data.modelBreakdown?.rows.length ?? 0} active`,
+      ``,
+      `Click to open dashboard`,
+    ].join('\n');
+  } else {
+    text = `$${(key.usage_monthly ?? 0).toFixed(2)}`;
+    tooltip = [
+      `OpenRouter: ${key.name || key.label}`,
+      ``,
+      ` Monthly: $${(key.usage_monthly ?? 0).toFixed(4)}`,
+      ` Weekly:  $${(key.usage_weekly ?? 0).toFixed(4)}`,
+      ` Daily:   $${(key.usage_daily ?? 0).toFixed(4)}`,
+      ` All time: $${(key.usage ?? 0).toFixed(4)}`,
+      ` ───────────────────────────`,
+      ` No budget limit set for the current key`,
+      ``,
+      `Click to open dashboard`,
+    ].join('\n');
   }
 
-  updateStatusBar(text, `OpenRouter: ${key.name || key.label}\n$${usage.toFixed(4)} used this month`);
+  updateStatusBar(text, tooltip);
 }
 
 // ── Dashboard Webview ─────────────────────────────────────────────────
@@ -149,26 +191,19 @@ async function openDashboard(context: vscode.ExtensionContext) {
     switch (msg.type) {
       case 'ready':
         // Send initial data
-        panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+        panel.webview.postMessage({ type: 'data', data: currentData });
         break;
 
       case 'refresh':
         await refreshData();
-        panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+        panel.webview.postMessage({ type: 'data', data: currentData });
         break;
 
       case 'selectKey':
         selectedKeyHash = msg.keyHash;
         await vscode.workspace.getConfiguration('openrouter').update('apiKeyId', msg.keyHash, true);
         await refreshData();
-        panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
-        break;
-
-      case 'changePeriod':
-        selectedPeriod = msg.period;
-        await vscode.workspace.getConfiguration('openrouter').update('defaultPeriod', msg.period, true);
-        await refreshData();
-        panel.webview.postMessage({ type: 'data', data: currentData, period: selectedPeriod });
+        panel.webview.postMessage({ type: 'data', data: currentData });
         break;
 
       case 'openSettings':

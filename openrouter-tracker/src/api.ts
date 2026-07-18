@@ -217,11 +217,15 @@ export class OpenRouterAPI {
     const key = keys.find(k => k.hash === keyHash) ?? keys[0];
     const guardrails: Guardrail[] = guardrailsBody.data ?? [];
 
-    // Budget info
-    const guardrail = guardrails.find(g => g.limit_usd != null) ?? null;
+    // Budget info — only if a guardrail with a limit exists
+    const guardrail = guardrails.find(g => g.limit_usd != null && g.limit_usd > 0) ?? null;
     let budget: BudgetInfo | null = null;
-    if (guardrail && guardrail.limit_usd) {
-      const spent = key?.usage_monthly ?? 0;
+    if (guardrail && guardrail.limit_usd && guardrail.limit_usd > 0) {
+      const interval = guardrail.reset_interval ?? 'monthly';
+      const spent =
+        interval === 'daily' ? (key?.usage_daily ?? 0) :
+        interval === 'weekly' ? (key?.usage_weekly ?? 0) :
+        (key?.usage_monthly ?? 0);
       const limit = guardrail.limit_usd;
       const remaining = Math.max(0, limit - spent);
       const pct = (spent / limit) * 100;
@@ -235,7 +239,7 @@ export class OpenRouterAPI {
         pct,
         resetDate: resetDate?.toISOString() ?? null,
         daysUntilReset: days,
-        interval: guardrail.reset_interval ?? 'monthly',
+        interval,
       };
     }
 

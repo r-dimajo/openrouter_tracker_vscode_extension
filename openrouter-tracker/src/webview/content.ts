@@ -225,11 +225,6 @@ export function getWebviewContent(): string {
     <div class="header">
       <h1>OpenRouter Usage</h1>
       <div class="header-actions">
-        <select id="periodSelect">
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="monthly" selected>Monthly</option>
-        </select>
         <button class="btn" id="refreshBtn">Refresh</button>
         <button class="btn" id="settingsBtn">Settings</button>
       </div>
@@ -257,14 +252,19 @@ export function getWebviewContent(): string {
       </div>
 
       <div class="card">
-        <div class="card-title">Budget</div>
+        <div class="card-title">Budget <span id="budgetIntervalLabel" class="tag" style="margin-left:6px"></span></div>
         <div id="budgetStats">
-          <div class="stat-row"><span class="stat-label">Limit</span><span class="stat-value" id="budgetLimit">—</span></div>
-          <div class="stat-row"><span class="stat-label">Spent</span><span class="stat-value" id="budgetSpent">—</span></div>
-          <div class="stat-row"><span class="stat-label">Remaining</span><span class="stat-value" id="budgetRemaining">—</span></div>
-          <div class="stat-row"><span class="stat-label">Used</span><span class="stat-value" id="budgetPct">—</span></div>
-          <div class="stat-row"><span class="stat-label">Next Reset</span><span class="stat-value" id="budgetReset">—</span></div>
-          <div class="budget-bar" id="budgetBar"><div class="budget-bar-fill" id="budgetBarFill" style="width:0%"></div></div>
+          <div id="budgetHasLimit" style="display:none">
+            <div class="stat-row"><span class="stat-label">Limit</span><span class="stat-value" id="budgetLimit">—</span></div>
+            <div class="stat-row"><span class="stat-label">Spent</span><span class="stat-value" id="budgetSpent">—</span></div>
+            <div class="stat-row"><span class="stat-label">Remaining</span><span class="stat-value" id="budgetRemaining">—</span></div>
+            <div class="stat-row"><span class="stat-label">Used</span><span class="stat-value" id="budgetPct">—</span></div>
+            <div class="stat-row"><span class="stat-label">Next Reset</span><span class="stat-value" id="budgetReset">—</span></div>
+            <div class="budget-bar" id="budgetBar"><div class="budget-bar-fill" id="budgetBarFill" style="width:0%"></div></div>
+          </div>
+          <div id="budgetNoLimit" style="display:none;padding:12px 0;text-align:center;color:var(--text-dim);font-size:13px">
+            No budget limit set for the current key
+          </div>
         </div>
       </div>
     </div>
@@ -298,10 +298,8 @@ export function getWebviewContent(): string {
     (function() {
       const vscode = acquireVsCodeApi();
       let currentData = null;
-      let currentPeriod = 'monthly';
 
       const keySelect = document.getElementById('keySelect');
-      const periodSelect = document.getElementById('periodSelect');
       const refreshBtn = document.getElementById('refreshBtn');
       const settingsBtn = document.getElementById('settingsBtn');
 
@@ -313,7 +311,7 @@ export function getWebviewContent(): string {
       }
       function fmtNum(n) { return n != null ? Number(n).toLocaleString() : '\u2014'; }
 
-      function render(data, period) {
+      function render(data) {
         if (!data || !data.key) {
           document.querySelectorAll('.stat-value').forEach(el => el.textContent = '\u2014');
           return;
@@ -328,28 +326,29 @@ export function getWebviewContent(): string {
 
         if (data.budget) {
           const b = data.budget;
+          document.getElementById('budgetHasLimit').style.display = 'block';
+          document.getElementById('budgetNoLimit').style.display = 'none';
           document.getElementById('budgetLimit').textContent = '$' + b.limit.toFixed(2);
           document.getElementById('budgetSpent').textContent = fmt$(b.spent);
           document.getElementById('budgetRemaining').textContent = fmt$(b.remaining);
           document.getElementById('budgetPct').textContent = b.pct.toFixed(2) + '%';
 
+          const intervalLabel = b.interval.charAt(0).toUpperCase() + b.interval.slice(1);
+          document.getElementById('budgetIntervalLabel').textContent = intervalLabel;
+          document.getElementById('budgetIntervalLabel').className = 'tag ' + (b.pct > 80 ? 'tag-red' : b.pct > 50 ? 'tag-orange' : 'tag-green');
+
           const resetStr = b.resetDate
             ? new Date(b.resetDate).toUTCString().slice(5, 22) + ' (' + b.daysUntilReset + 'd)'
             : 'Never';
-          document.getElementById('budgetReset').textContent = resetStr;
+          document.getElementById('budgetReset').textContent = resetStr + ' (' + b.interval + ')';
 
           const fill = document.getElementById('budgetBarFill');
           fill.style.width = Math.min(b.pct, 100) + '%';
           fill.className = 'budget-bar-fill ' + (b.pct > 80 ? 'high' : b.pct > 50 ? 'med' : 'low');
         } else {
-          document.getElementById('budgetLimit').textContent = 'No limit set';
-          document.getElementById('budgetSpent').textContent = '\u2014';
-          document.getElementById('budgetRemaining').textContent = '\u2014';
-          document.getElementById('budgetPct').textContent = '\u2014';
-          document.getElementById('budgetReset').textContent = '\u2014';
-          const fill = document.getElementById('budgetBarFill');
-          fill.style.width = '0%';
-          fill.className = 'budget-bar-fill';
+          document.getElementById('budgetHasLimit').style.display = 'none';
+          document.getElementById('budgetNoLimit').style.display = 'block';
+          document.getElementById('budgetIntervalLabel').textContent = '';
         }
 
         const tbody = document.getElementById('modelBody');
@@ -398,19 +397,13 @@ export function getWebviewContent(): string {
         const msg = event.data;
         if (msg.type === 'data') {
           currentData = msg.data;
-          currentPeriod = msg.period;
           populateKeys(msg.data, msg.data.key?.hash);
-          periodSelect.value = msg.period;
-          render(msg.data, msg.period);
+          render(msg.data);
         }
       });
 
       keySelect.addEventListener('change', () => {
         vscode.postMessage({ type: 'selectKey', keyHash: keySelect.value });
-      });
-
-      periodSelect.addEventListener('change', () => {
-        vscode.postMessage({ type: 'changePeriod', period: periodSelect.value });
       });
 
       refreshBtn.addEventListener('click', () => {
