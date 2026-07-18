@@ -200,8 +200,27 @@ async function getBudgetTracking(guardrailsBody) {
 // ── 4. Model breakdown — Analytics API (requires Management Key) ───────
 async function getModelBreakdown() {
   console.log('\n══════════════════════════════════════════════');
-  console.log('  📦 MODEL BREAKDOWN (this month)');
+  console.log('  📦 MODEL BREAKDOWN (this month, per API key)');
   console.log('══════════════════════════════════════════════');
+
+  // ── Resolve the current API key's hash ──
+  const { data: keyData } = await fetchJSON('/key');
+  const keyLabel = keyData.data.label; // e.g. "sk-or-v1-6d1...2f3"
+  const keysRes = await fetch(`${BASE}/keys`, {
+    headers: { Authorization: `Bearer ${MGMT_KEY}` },
+  });
+  if (!keysRes.ok) {
+    console.log('  ⚠️  Cannot list keys — Management Key may be invalid');
+    return;
+  }
+  const keysBody = await keysRes.json();
+  const thisKey = keysBody.data?.find(k => k.label === keyLabel);
+  const keyHash = thisKey?.hash;
+  if (!keyHash) {
+    console.log('  ⚠️  Could not find this API key in the key list');
+    return;
+  }
+  console.log(`  Key: ${thisKey.name} (${keyLabel})`);
 
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
@@ -216,6 +235,9 @@ async function getModelBreakdown() {
     body: JSON.stringify({
       metrics: ['total_usage', 'request_count', 'tokens_total', 'cache_hit_rate'],
       dimensions: ['model'],
+      filters: [
+        { field: 'api_key_id', operator: 'eq', value: keyHash },
+      ],
       order_by: { field: 'total_usage', direction: 'desc' },
       time_range: { start: monthStart, end: monthEnd },
       limit: 20,
