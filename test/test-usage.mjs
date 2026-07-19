@@ -282,6 +282,45 @@ async function analyticsMenu(keyHash, meta, keyName) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  Budget computation helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+function getUsageForInterval(keyDetail, interval) {
+  // interval: 'daily' | 'weekly' | 'monthly' | null (lifetime)
+  switch (interval) {
+    case 'daily':   return keyDetail.usage_daily ?? 0;
+    case 'weekly':  return keyDetail.usage_weekly ?? 0;
+    case 'monthly': return keyDetail.usage_monthly ?? 0;
+    default:        return keyDetail.usage ?? 0; // lifetime
+  }
+}
+
+function computeLimitState(limitUsd, interval, keyDetail) {
+  if (limitUsd == null || limitUsd <= 0) return null;
+  const used = getUsageForInterval(keyDetail, interval);
+  const remaining = Math.max(0, limitUsd - used);
+  const pct = Math.min(100, (used / limitUsd) * 100);
+  return { limitUsd, used, remaining, pct, interval: interval ?? 'lifetime' };
+}
+
+function printProgressBar(label, state) {
+  if (!state) {
+    console.log(`  ${label}: (no limit)`);
+    return;
+  }
+  const { limitUsd, used, remaining, pct, interval } = state;
+  const barLen = 20;
+  const filled = Math.round((pct / 100) * barLen);
+  const bar = '█'.repeat(Math.min(filled, barLen)) + '░'.repeat(Math.max(0, barLen - filled));
+
+  console.log(`  ${label}`);
+  console.log(`     Limit:      $${limitUsd.toFixed(2)}  (resets: ${interval})`);
+  console.log(`     Spent:      $${used.toFixed(6)}`);
+  console.log(`     Remaining:  $${remaining.toFixed(4)}  (${(100 - pct).toFixed(1)}% left)`);
+  console.log(`     [${bar}]  ${pct.toFixed(1)}%`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  MENU: Budget Limits
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -290,88 +329,79 @@ async function budgetMenu(keyHash, keyDetail) {
   console.log(`  💰 BUDGET LIMITS for ${keyDetail.name}`);
   console.log(`${'═'.repeat(62)}`);
 
+  const keyWorkspaceId = keyDetail.workspace_id;
+
   // ── Key-level limit ──
   console.log('\n  ── Key-Level Limit ──');
-  if (keyDetail.limit != null) {
-    const spent = keyDetail.usage ?? 0;
-    const remaining = keyDetail.limit_remaining ?? Math.max(0, keyDetail.limit - spent);
-    const pct = keyDetail.limit > 0 ? (spent / keyDetail.limit) * 100 : 0;
-    console.log(`  Limit:           $${keyDetail.limit.toFixed(2)}`);
-    console.log(`  Spent:           $${spent.toFixed(6)}`);
-    console.log(`  Remaining:       $${remaining.toFixed(4)}`);
-    console.log(`  Used:            ${pct.toFixed(1)}%`);
-    console.log(`  Reset interval:  ${keyDetail.limit_reset ?? 'never'}`);
-    console.log(`  Includes BYOK:   ${keyDetail.include_byok_in_limit ?? false}`);
-    // Progress bar
-    const barLen = 20;
-    const filled = Math.round((pct / 100) * barLen);
-    console.log(`  [${'█'.repeat(Math.min(filled, barLen))}${'░'.repeat(Math.max(0, barLen - filled))}]  ${pct.toFixed(1)}%`);
+  const keyState = computeLimitState(keyDetail.limit, keyDetail.limit_reset, keyDetail);
+  if (keyState) {
+    printProgressBar('Key limit ' + (keyDetail.include_byok_in_limit ? '(incl. BYOK)' : '(excl. BYOK)'), keyState);
   } else {
     console.log('  (no key-level limit set)');
   }
 
-  // ── Guardrail limits matching this key ──
-  console.log('\n  ── Guardrail Limits (assigned to this key) ──');
+  // ── Guardrails (all types: explicit key assignments + workspace-level) ──
+  console.log('\n  ── Guardrail & Workspace Limits ──');
   let guardrails;
   try { guardrails = await listGuardrails(); } catch (e) {
     console.log(`  ⚠️  Could not list guardrails: ${e.message.split('\n')[0]}`);
     guardrails = [];
   }
 
-  let matchedGuardrails = 0;
+  const explicitGuards = [];
+  const workspaceGuards = [];
+
   for (const g of guardrails) {
     let assignments;
-    try { assignments = await listGuardrailKeyAssignments(g.id); } catch { continue; }
+    try { assignments = await listGuardrailKeyAssignments(g.id); } catch { assignments = []; }
 
-    const assignedToThisKey = assignments.some(a => a.key_hash === keyHash);
-    if (!assignedToThisKey) continue;
-    matchedGuardrails++;
+    // Two ways a guardrail applies to this key:
+    // 1. Explicitly assigned to this key
+    // 2. Workspace-level: name starts with "Workspace " AND belongs to key's workspace AND has a limit set
+    const explicitMatch = assignments.some(a => a.key_hash === keyHash);
+    const isWorkspaceGuardrail = /^Workspace [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(g.name);
+    const workspaceMatch = !explicitMatch && isWorkspaceGuardrail && g.limit_usd != null && g.workspace_id === keyWorkspaceId;
 
-    console.log(`\n  🛡️  ${g.name}`);
-    console.log(`     ID:              ${g.id}`);
-    if (g.description) console.log(`     Description:     ${g.description}`);
-    if (g.limit_usd != null) {
-      console.log(`     Limit:           $${g.limit_usd.toFixed(2)}`);
-      console.log(`     Reset interval:  ${g.reset_interval ?? 'never'}`);
-    } else {
-      console.log('     Limit:           (no spending limit)');
+    if (explicitMatch) {
+      explicitGuards.push({ guardrail: g, assignments });
+    } else if (workspaceMatch) {
+      workspaceGuards.push({ guardrail: g, assignments });
     }
-    console.log(`     Workspace:       ${g.workspace_id}`);
-    if (g.allowed_models) console.log(`     Allowed models:  ${g.allowed_models.join(', ')}`);
-    if (g.allowed_providers) console.log(`     Allowed provs:   ${g.allowed_providers.join(', ')}`);
-    if (g.created_at) console.log(`     Created:         ${g.created_at.slice(0, 10)}`);
-  }
-  if (matchedGuardrails === 0) console.log('  (no guardrails assigned to this key)');
-
-  // ── Workspace budgets ──
-  console.log('\n  ── Workspace Budgets ──');
-  let workspaces;
-  try { workspaces = await listWorkspaces(); } catch (e) {
-    console.log(`  ⚠️  Could not list workspaces: ${e.message.split('\n')[0]}`);
-    return;
   }
 
-  for (const ws of workspaces) {
-    console.log(`\n  📁 ${ws.name} (${ws.id})`);
-    try {
-      const budgetBody = await fetchJSON(`/workspaces/${ws.id}/budgets`);
-      const budgets = budgetBody.data ?? [];
-      if (!budgets.length) {
-        console.log('     (no budgets configured)');
-      } else {
-        for (const b of budgets) {
-          console.log(`     Budget: $${b.limit_usd?.toFixed(2) ?? 'N/A'} | Reset: ${b.reset_interval ?? 'never'} | ID: ${b.id}`);
-        }
-      }
-    } catch (e) {
-      const msg = e.message.split('\n')[0];
-      if (msg.includes('404')) {
-        console.log(`     ⚠️  /workspaces/${ws.id}/budgets returned 404 — endpoint may be bugged, waiting for server-side fix.`);
-      } else {
-        console.log(`     ⚠️  Error: ${msg}`);
+  // Show explicitly assigned guardrails
+  if (explicitGuards.length > 0) {
+    for (const { guardrail: g } of explicitGuards) {
+      const state = computeLimitState(g.limit_usd, g.reset_interval, keyDetail);
+      console.log(`\n  🛡️  ${g.name}${g.limit_usd != null ? '' : ' (no spending limit)'}`);
+      console.log(`     ID: ${g.id.slice(0, 8)}...  |  Workspace: ${g.workspace_id?.slice(0, 8) ?? '?'}...  |  Type: key-assigned`);
+      if (state) {
+        printProgressBar('Limit', state);
       }
     }
   }
+
+  // Show workspace-level guardrails (budgets that apply to all keys)
+  if (workspaceGuards.length > 0) {
+    for (const { guardrail: g } of workspaceGuards) {
+      const state = computeLimitState(g.limit_usd, g.reset_interval, keyDetail);
+      console.log(`\n  🛡️  ${g.name}${g.limit_usd != null ? '' : ' (no spending limit)'}`);
+      console.log(`     ID: ${g.id.slice(0, 8)}...  |  Workspace: ${g.workspace_id?.slice(0, 8) ?? '?'}...  |  Type: workspace-wide`);
+      if (state) {
+        printProgressBar('Limit', state);
+      }
+    }
+  }
+
+  if (explicitGuards.length === 0 && workspaceGuards.length === 0) {
+    console.log('  (no guardrails or workspace budgets found)');
+  }
+
+  // ── Workspace budgets via /workspaces/{id}/budgets (broken endpoint fallback note) ──
+  console.log('\n  ── Note ──');
+  console.log('  Workspace budgets are surfaced as guardrails above (workspace-wide type).');
+  console.log('  The /workspaces/{id}/budgets endpoint currently returns 404 —');
+  console.log('  once fixed server-side, we will also check it for additional budgets.');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
