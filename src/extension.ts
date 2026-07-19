@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 import * as vscode from 'vscode';
-import { createStatusBar, updateStatusBar } from './status-bar';
+import { createStatusBar, updateStatusBar, StatusBarData } from './status-bar';
 import { showDashboard } from './dashboard';
 import * as api from './api';
 
@@ -31,38 +31,76 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             context.globalState.get<string>('trackedLimitId');
 
           if (!hash) {
-            updateStatusBar(null, null);
+            updateStatusBar({ usage: [], budgets: [], tracked: null });
             return;
           }
 
           const detail = await api.getKeyDetail(hash);
           const guardrails = await api.listGuardrails();
 
-          // Find the tracked budget
-          let found: { used: number; limitUsd: number; name: string } | null = null;
+          // Usage summary
+          const usage = [
+            { period: 'All time', amount: detail.usage },
+            { period: 'This month', amount: detail.usage_monthly },
+            { period: 'This week', amount: detail.usage_weekly },
+            { period: 'Today', amount: detail.usage_daily },
+          ];
 
-          if (trackedId?.startsWith('key-')) {
-            if (detail.limit != null && detail.limit > 0) {
-              const used = getUsageForInterval(detail, detail.limit_reset);
-              found = { used, limitUsd: detail.limit, name: detail.name };
-            }
-          } else if (trackedId?.startsWith('guardrail-')) {
-            const gId = trackedId.replace('guardrail-', '');
-            const g = guardrails.find(x => x.id === gId);
-            if (g && g.limit_usd != null) {
+          // Budgets
+          const budgets: StatusBarData['budgets'] = [];
+
+          if (detail.limit != null && detail.limit > 0) {
+            const used = getUsageForInterval(detail, detail.limit_reset);
+            const remaining = Math.max(0, detail.limit - used);
+            const pct = Math.min(100, (used / detail.limit) * 100);
+            budgets.push({
+              name: detail.name + ' (key limit)',
+              source: 'key-level',
+              interval: detail.limit_reset ?? 'lifetime',
+              limitUsd: detail.limit,
+              used,
+              remaining,
+              pct,
+              isTracked: trackedId === `key-${hash}`,
+            });
+          }
+
+          for (const g of guardrails) {
+            if (g.limit_usd == null || g.limit_usd <= 0) { continue; }
+            let assignments: { key_hash: string }[] = [];
+            try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch { /* skip */ }
+
+            const isAssigned = assignments.some(a => a.key_hash === hash);
+            const isWorkspaceGuard = g.workspace_id === detail.workspace_id &&
+              /^Workspace [0-9a-f-]+/i.test(g.name);
+
+            if (isAssigned || isWorkspaceGuard) {
               const used = getUsageForInterval(detail, g.reset_interval);
-              found = { used, limitUsd: g.limit_usd, name: g.name };
+              const remaining = Math.max(0, g.limit_usd - used);
+              const pct = Math.min(100, (used / g.limit_usd) * 100);
+              budgets.push({
+                name: g.name,
+                source: isAssigned ? 'guardrail' : 'workspace',
+                interval: g.reset_interval ?? 'lifetime',
+                limitUsd: g.limit_usd,
+                used,
+                remaining,
+                pct,
+                isTracked: trackedId === `guardrail-${g.id}`,
+              });
             }
           }
 
-          if (found) {
-            updateStatusBar(found.used, found.limitUsd, found.name);
-          } else {
-            updateStatusBar(null, null);
-          }
+          const tracked = budgets.find(b => b.isTracked) ?? null;
+          updateStatusBar({
+            usage,
+            budgets,
+            tracked: tracked
+              ? { name: tracked.name, used: tracked.used, limitUsd: tracked.limitUsd, pct: tracked.pct }
+              : null,
+          });
         } catch {
-          // If fetch fails, show disconnected
-          updateStatusBar(null, null);
+          updateStatusBar({ usage: [], budgets: [], tracked: null });
         }
       },
     ),

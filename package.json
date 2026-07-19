@@ -3,11 +3,18 @@
   "displayName": "OpenRouter Tracker",
   "description": "Track OpenRouter API usage & budget limits in VS Code",
   "version": "0.1.0",
-  "publisher": "ricca",
+  "publisher": "riccardo.dimajo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ricca/openrouter-tracker"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
+  "icon": "icon.png",
   "activationEvents": [
     "*"
   ],

@@ -43,28 +43,51 @@ let statusBarItem;
 function createStatusBar(onShowDashboard) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'openrouter-tracker.showDashboard';
-    statusBarItem.tooltip = 'OpenRouter Tracker — click to open dashboard';
     statusBarItem.text = '$(graph) OpenRouter: —';
+    statusBarItem.tooltip = new vscode.MarkdownString('*(no data)*');
     statusBarItem.show();
-    // Note: command registration handled in extension.ts, but click still works via command.
     return statusBarItem;
 }
-function updateStatusBar(consumed, limit, label) {
+function updateStatusBar(data) {
     if (!statusBarItem) {
         return;
     }
-    if (consumed == null || limit == null || limit <= 0) {
+    if (!data.tracked) {
         statusBarItem.text = '$(graph) OpenRouter: —';
-        statusBarItem.tooltip = 'No budget limit tracked. Configure in dashboard.';
+        statusBarItem.tooltip = new vscode.MarkdownString('*No budget limit tracked. Open the dashboard to configure.*');
         return;
     }
-    const pct = Math.min(100, (consumed / limit) * 100);
-    const limitStr = limit >= 1 ? `$${limit.toFixed(0)}` : `$${limit.toFixed(4)}`;
-    const consumedStr = consumed >= 1 ? `$${consumed.toFixed(0)}` : `$${consumed.toFixed(4)}`;
+    const { used, limitUsd, pct, name } = data.tracked;
+    const limitStr = limitUsd >= 1 ? `$${limitUsd.toFixed(0)}` : `$${limitUsd.toFixed(4)}`;
+    const consumedStr = used >= 1 ? `$${used.toFixed(0)}` : `$${used.toFixed(4)}`;
     statusBarItem.text = `$(graph) ${consumedStr} / ${limitStr} (${pct.toFixed(0)}%)`;
-    statusBarItem.tooltip = label
-        ? `Tracking: ${label}\nClick to open dashboard`
-        : 'Click to open dashboard';
+    // ── Build rich Markdown hover tooltip ──
+    const md = new vscode.MarkdownString('', true);
+    md.isTrusted = true;
+    md.supportHtml = true;
+    // Usage Summary table
+    md.appendMarkdown('### Usage Summary\n\n');
+    md.appendMarkdown('| Period | Amount |\n| --- | --- |\n');
+    for (const u of data.usage) {
+        const amt = u.amount >= 1
+            ? `$${u.amount.toFixed(2)}`
+            : `$${u.amount.toFixed(6)}`;
+        md.appendMarkdown(`| ${u.period} | ${amt} |\n`);
+    }
+    // Budget Limits table
+    md.appendMarkdown('\n### Budget Limits\n\n');
+    md.appendMarkdown('| Tracked | Name | Source | Interval | Limit | Used | Remaining |\n');
+    md.appendMarkdown('| --- | --- | --- | --- | --- | --- | --- |\n');
+    for (const b of data.budgets) {
+        const tracked = b.isTracked ? '✓' : '';
+        const lim = `$${b.limitUsd.toFixed(2)}`;
+        const u = `$${b.used.toFixed(2)}`;
+        const rem = `$${b.remaining.toFixed(2)}`;
+        md.appendMarkdown(`| ${tracked} | ${b.name} | ${b.source} | ${b.interval} | ${lim} | ${u} | ${rem} |\n`);
+    }
+    md.appendMarkdown(`\n*Tracking: ${name} — ${consumedStr} / ${limitStr} (${pct.toFixed(0)}%)*`);
+    statusBarItem.tooltip = md;
+    // Colour coding
     if (pct > 90) {
         statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     }

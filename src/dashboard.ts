@@ -11,7 +11,7 @@ import type {
   AnalyticsMeta,
 } from './types';
 import * as api from './api';
-import { updateStatusBar } from './status-bar';
+import { updateStatusBar, StatusBarData } from './status-bar';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 
@@ -138,9 +138,9 @@ function getWebviewHtml(webview: vscode.Webview, nonce: string): string {
     <h3>Budget Limits</h3>
     <table>
       <thead>
-        <tr><th>Track</th><th>Source</th><th>Name</th><th>Limit</th><th>Used</th><th>Remaining</th><th>Progress</th></tr>
+        <tr><th>Track</th><th>Source</th><th>Name</th><th>Interval</th><th>Limit</th><th>Used</th><th>Remaining</th><th>Progress</th></tr>
       </thead>
-      <tbody id="budget-body"><tr><td colspan="7">Loading…</td></tr></tbody>
+      <tbody id="budget-body"><tr><td colspan="8">Loading…</td></tr></tbody>
     </table>
   </div>
 
@@ -215,7 +215,7 @@ function getWebviewHtml(webview: vscode.Webview, nonce: string): string {
 
     function renderBudgets(budgets, trackedId) {
       if (!budgets?.length) {
-        $('budget-body').innerHTML = '<tr><td colspan="7">No budget limits found</td></tr>';
+        $('budget-body').innerHTML = '<tr><td colspan="8">No budget limits found</td></tr>';
         return;
       }
       $('budget-body').innerHTML = budgets
@@ -223,6 +223,7 @@ function getWebviewHtml(webview: vscode.Webview, nonce: string): string {
           '<td><input type="radio" name="tracked" value="' + b.id + '"' + (b.id === trackedId ? ' checked' : '') + '></td>' +
           '<td>' + b.source + '</td>' +
           '<td>' + b.name + '</td>' +
+          '<td>' + (b.resetInterval ?? 'lifetime') + '</td>' +
           '<td>' + fmtMoney(b.limitUsd) + '</td>' +
           '<td>' + fmtMoney(b.used) + '</td>' +
           '<td>' + fmtMoney(b.remaining) + '</td>' +
@@ -380,11 +381,33 @@ async function buildState(
 
   // Update status bar
   const tracked = budgetLimits.find(b => b.id === effectiveTracked);
-  if (tracked) {
-    updateStatusBar(tracked.used, tracked.limitUsd, tracked.name);
-  } else {
-    updateStatusBar(null, null);
-  }
+
+  const usage = detail
+    ? [
+        { period: 'All time', amount: detail.usage },
+        { period: 'This month', amount: detail.usage_monthly },
+        { period: 'This week', amount: detail.usage_weekly },
+        { period: 'Today', amount: detail.usage_daily },
+      ]
+    : [];
+  const sbBudgets: StatusBarData['budgets'] = budgetLimits.map(b => ({
+    name: b.name,
+    source: b.source,
+    interval: b.resetInterval ?? 'lifetime',
+    limitUsd: b.limitUsd,
+    used: b.used,
+    remaining: b.remaining,
+    pct: b.pct,
+    isTracked: b.id === effectiveTracked,
+  }));
+
+  updateStatusBar({
+    usage,
+    budgets: sbBudgets,
+    tracked: tracked
+      ? { name: tracked.name, used: tracked.used, limitUsd: tracked.limitUsd, pct: tracked.pct }
+      : null,
+  });
 
   return {
     apiKeys: keys,
