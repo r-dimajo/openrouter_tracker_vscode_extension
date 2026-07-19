@@ -15,11 +15,11 @@ Track your OpenRouter API usage and budget limits directly from the VS Code stat
 
 ### Status bar
 
-![Status Bar](images/status_bar.png)
+![Status Bar](https://raw.githubusercontent.com/r-dimajo/openrouter_tracker_vscode_extension/master/images/status_bar.png)
 
 ### Dashboard
 
-![Dashboard](images/dashboard.png)
+![Dashboard](https://raw.githubusercontent.com/r-dimajo/openrouter_tracker_vscode_extension/master/images/dashboard.png)
 
 ## Setup
 
