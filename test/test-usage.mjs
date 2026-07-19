@@ -191,15 +191,10 @@ async function analyticsMenu(keyHash, meta, keyName) {
   console.log('   Presets:');
   PRESET_DIMENSIONS.forEach((d, i) => console.log(`   [${i + 1}] ${d}`));
   const allDims = meta.dimensions.map(d => d.name);
-  const dimAns = await ask('\n   Comma-separated numbers (1-3) or Enter for all presets, "0" for none, "all" for everything: ');
+  const dimAns = await ask('\n   Comma-separated numbers (1-3) or Enter for all presets, "0" for none: ');
   let chosenDimensions;
   if (dimAns === '0') {
     chosenDimensions = [];
-  } else if (dimAns.toLowerCase() === 'all') {
-    console.log('\n   All dimensions:');
-    meta.dimensions.forEach((d, i) => console.log(`   [${i + 1}] ${d.display_label} (${d.name})`));
-    const customAns = await ask('\n   Comma-separated numbers (max 2): ');
-    chosenDimensions = customAns.split(',').map(n => meta.dimensions[parseInt(n.trim()) - 1]?.name).filter(Boolean);
   } else if (dimAns) {
     chosenDimensions = dimAns.split(',').map(n => PRESET_DIMENSIONS[parseInt(n.trim()) - 1]).filter(Boolean);
   } else {
