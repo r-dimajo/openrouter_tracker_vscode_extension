@@ -32,7 +32,7 @@ Track your OpenRouter API usage and budget limits directly from the VS Code stat
 ## Requirements
 
 - An OpenRouter account with a [management key](https://openrouter.ai/keys)
-- VS Code 1.85+
+- VS Code 1.86+
 
 ## Extension Settings
 

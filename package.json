@@ -3,20 +3,20 @@
   "displayName": "OpenRouter Tracker",
   "description": "Track OpenRouter API usage & budget limits in VS Code",
   "version": "0.1.0",
-  "publisher": "riccardo.dimajo",
+  "publisher": "r-dimajo",
   "repository": {
     "type": "git",
     "url": "https://github.com/ricca/openrouter-tracker"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.86.0"
   },
   "categories": [
     "Other"
   ],
   "icon": "icon.png",
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -47,9 +47,10 @@
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.86.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "license": "MIT"
 }
