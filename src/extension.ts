@@ -26,7 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'openrouter-tracker.refreshStatus',
       async () => {
         try {
-          const hash = context.globalState.get<string>('selectedKeyHash');
+          let hash = context.globalState.get<string>('selectedKeyHash');
           const trackedId =
             context.globalState.get<string>('trackedLimitId');
 
@@ -35,7 +35,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return;
           }
 
-          const detail = await api.getKeyDetail(hash);
+          let detail;
+          try {
+            detail = await api.getKeyDetail(hash);
+          } catch {
+            // Stale hash — clear it and try first available key
+            const keys = await api.listKeys();
+            if (keys.length > 0) {
+              hash = keys[0].hash;
+              await context.globalState.update('selectedKeyHash', hash);
+              detail = await api.getKeyDetail(hash);
+            } else {
+              updateStatusBar({ usage: [], budgets: [], tracked: null });
+              return;
+            }
+          }
+
+          if (!detail) {
+            updateStatusBar({ usage: [], budgets: [], tracked: null });
+            return;
+          }
           const guardrails = await api.listGuardrails();
 
           // Usage summary

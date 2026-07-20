@@ -316,13 +316,25 @@ async function buildState(
   selectedHash: string | null,
   trackedLimitId: string | null,
 ): Promise<DashboardState> {
-  const hash = selectedHash ?? keys[0]?.hash ?? null;
+  let hash = selectedHash ?? keys[0]?.hash ?? null;
   let detail: ApiKey | null = null;
   let meta: AnalyticsMeta | null = null;
   const budgetLimits: BudgetLimit[] = [];
 
   if (hash) {
-    detail = await api.getKeyDetail(hash);
+    // If the stored hash is stale (e.g. after changing management key),
+    // fall back to the first available key
+    try {
+      detail = await api.getKeyDetail(hash);
+    } catch {
+      hash = keys[0]?.hash ?? null;
+      if (hash) {
+        try { detail = await api.getKeyDetail(hash); } catch { detail = null; }
+      }
+    }
+  }
+
+  if (hash && detail) {
 
     // Key-level limit
     if (detail.limit != null && detail.limit > 0) {
@@ -475,14 +487,21 @@ export async function showDashboard(
       try {
         if (msg.type === 'refresh') {
           const keys = await api.listKeys();
-          const storedHash: string | null = context.globalState.get('selectedKeyHash') ?? null;
+          let storedHash: string | null = context.globalState.get('selectedKeyHash') ?? null;
+
+          // If stored hash is stale, fall back to first key and persist
+          if (storedHash && !keys.some(k => k.hash === storedHash)) {
+            storedHash = keys[0]?.hash ?? null;
+            if (storedHash) await context.globalState.update('selectedKeyHash', storedHash);
+          }
+
           const state = await buildState(
             keys,
             storedHash,
             context.globalState.get('trackedLimitId') ?? null,
           );
-          // Persist default key hash so runAnalytics can find it
-          if (!storedHash && state.selectedKeyHash) {
+          // Persist the hash that buildState actually resolved to
+          if (state.selectedKeyHash && state.selectedKeyHash !== storedHash) {
             await context.globalState.update('selectedKeyHash', state.selectedKeyHash);
           }
           currentPanel?.webview.postMessage({ type: 'state', state });

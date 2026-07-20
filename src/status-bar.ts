@@ -50,8 +50,8 @@ export function updateStatusBar(data: StatusBarData): void {
   }
 
   const { used, limitUsd, pct, name } = data.tracked;
-  const limitStr = limitUsd >= 1 ? `$${limitUsd.toFixed(0)}` : `$${limitUsd.toFixed(4)}`;
-  const consumedStr = used >= 1 ? `$${used.toFixed(0)}` : `$${used.toFixed(4)}`;
+  const limitStr = limitUsd >= 1 ? `$${limitUsd.toFixed(2)}` : `$${limitUsd.toFixed(4)}`;
+  const consumedStr = used >= 1 ? `$${used.toFixed(2)}` : `$${used.toFixed(4)}`;
   statusBarItem.text = `$(graph) ${consumedStr} / ${limitStr} (${pct.toFixed(0)}%)`;
 
   // ── Build rich Markdown hover tooltip ──
