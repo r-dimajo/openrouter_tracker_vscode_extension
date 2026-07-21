@@ -5,7 +5,19 @@
 import * as vscode from 'vscode';
 import { createStatusBar, updateStatusBar, StatusBarData } from './status-bar';
 import { showDashboard } from './dashboard';
+import type { Guardrail } from './types';
 import * as api from './api';
+
+// Cache the last known good status bar data so transient errors don't blank the bar
+let lastGoodStatus: StatusBarData | null = null;
+
+function setStatusBar(data: StatusBarData): void {
+  const hasData = data.tracked || data.budgets.length > 0;
+  if (hasData) {
+    lastGoodStatus = data;
+  }
+  updateStatusBar(data);
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // ── Status Bar ──
@@ -31,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             context.globalState.get<string>('trackedLimitId');
 
           if (!hash) {
+            lastGoodStatus = null;
             updateStatusBar({ usage: [], budgets: [], tracked: null });
             return;
           }
@@ -46,16 +59,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               await context.globalState.update('selectedKeyHash', hash);
               detail = await api.getKeyDetail(hash);
             } else {
+              lastGoodStatus = null;
               updateStatusBar({ usage: [], budgets: [], tracked: null });
               return;
             }
           }
 
           if (!detail) {
+            lastGoodStatus = null;
             updateStatusBar({ usage: [], budgets: [], tracked: null });
             return;
           }
-          const guardrails = await api.listGuardrails();
+
+          // Guardrails are best-effort; key-level limit still shows if they fail
+          let guardrails: Guardrail[] = [];
+          try { guardrails = await api.listGuardrails(); } catch { /* keep empty */ }
 
           // Usage summary
           const usage = [
@@ -111,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
 
           const tracked = budgets.find(b => b.isTracked) ?? null;
-          updateStatusBar({
+          setStatusBar({
             usage,
             budgets,
             tracked: tracked
@@ -119,7 +137,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               : null,
           });
         } catch {
-          updateStatusBar({ usage: [], budgets: [], tracked: null });
+          // Transient error — keep showing last known good data instead of blanking
+          if (lastGoodStatus) {
+            updateStatusBar(lastGoodStatus);
+          }
         }
       },
     ),
