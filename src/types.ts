@@ -92,6 +92,68 @@ export interface BudgetLimit {
   pct: number;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+//  Models
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface Model {
+  id: string;
+  name: string;
+  canonical_slug: string;
+  description?: string | null;
+  context_length: number | null;
+  pricing: {
+    prompt: string;
+    completion: string;
+    image?: string;
+    request?: string;
+  };
+  top_provider?: {
+    is_moderated: boolean;
+    context_length?: number;
+    max_completion_tokens?: number | null;
+  };
+  architecture?: {
+    input_modalities: string[];
+    output_modalities: string[];
+    modality: string;
+    tokenizer?: string;
+  };
+  created: number;
+}
+
+export interface ModelsListResponse {
+  data: Model[];
+  total_count: number;
+  links?: {
+    next: string | null;
+  };
+}
+
+export type ModelSortOption =
+  | 'pricing-low-to-high'
+  | 'pricing-high-to-low'
+  | 'context-high-to-low'
+  | 'throughput-high-to-low'
+  | 'latency-low-to-high'
+  | 'most-popular'
+  | 'top-weekly'
+  | 'newest'
+  | 'intelligence-high-to-low'
+  | 'coding-high-to-low'
+  | 'agentic-high-to-low'
+  | 'design-arena-elo-high-to-low';
+
+export interface ModelsFilter {
+  zdr: boolean;
+  minPrice: number | null;
+  maxPrice: number | null;
+  searchQuery: string;
+  sort: ModelSortOption;
+  offset: number;
+  limit: number;
+}
+
 export interface DashboardState {
   apiKeys: ApiKey[];
   selectedKeyHash: string | null;
@@ -104,11 +166,16 @@ export interface DashboardState {
   analyticsMetric: string;
   analyticsGranularity: string;
   analyticsCustomRange: { start: string; end: string } | null;
+  // Models
+  models: Model[];
+  modelsTotal: number;
+  modelsFilter: ModelsFilter;
 }
 
 export type MessageToWebview =
   | { type: 'state'; state: DashboardState }
   | { type: 'analyticsResult'; result: AnalyticsResult }
+  | { type: 'modelsResult'; models: Model[]; total: number; offset: number; limit: number }
   | { type: 'error'; message: string };
 
 export type MessageFromWebview =
@@ -119,4 +186,6 @@ export type MessageFromWebview =
   | { type: 'setAnalyticsGranularity'; granularity: string }
   | { type: 'setAnalyticsCustomRange'; range: { start: string; end: string } | null }
   | { type: 'runAnalytics'; dimension?: string; metric?: string; granularity?: string }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  | { type: 'fetchModels'; filter: Partial<ModelsFilter> }
+  | { type: 'setModelsFilter'; filter: Partial<ModelsFilter> };

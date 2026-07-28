@@ -9,6 +9,8 @@ import type {
   AnalyticsResult,
   Guardrail,
   GuardrailAssignment,
+  ModelsListResponse,
+  ModelsFilter,
 } from './types';
 
 const BASE = 'https://openrouter.ai/api/v1';
@@ -92,4 +94,27 @@ export async function listGuardrails(): Promise<Guardrail[]> {
 export async function listGuardrailKeyAssignments(guardrailId: string): Promise<GuardrailAssignment[]> {
   const body = await fetchJSON<{ data: GuardrailAssignment[] }>(`/guardrails/${guardrailId}/assignments/keys`);
   return body.data ?? [];
+}
+
+export async function listModels(filter: Partial<ModelsFilter> = {}): Promise<ModelsListResponse> {
+  const query = new URLSearchParams();
+  
+  // Pagination
+  if (filter.limit) query.set('limit', String(filter.limit));
+  if (filter.offset) query.set('offset', String(filter.offset));
+  
+  // Sorting
+  if (filter.sort) query.set('sort', filter.sort);
+  
+  // Filters
+  if (filter.zdr) query.set('zdr', 'true');
+  if (filter.searchQuery) query.set('q', filter.searchQuery);
+  if (filter.minPrice != null) query.set('min_output_price', String(filter.minPrice));
+  if (filter.maxPrice != null) query.set('max_output_price', String(filter.maxPrice));
+  
+  const queryString = query.toString();
+  const endpoint = queryString ? `/models?${queryString}` : '/models';
+  
+  const body = await fetchJSON<ModelsListResponse>(endpoint);
+  return body;
 }
