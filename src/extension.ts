@@ -73,7 +73,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
           // Guardrails are best-effort; key-level limit still shows if they fail
           let guardrails: Guardrail[] = [];
-          try { guardrails = await api.listGuardrails(); } catch { /* keep empty */ }
+          try { guardrails = await api.listGuardrails(); } catch (error) {
+            console.log('api.listGuardrails() error: ', error);
+          }
 
           // Usage summary
           const usage = [
@@ -105,7 +107,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           for (const g of guardrails) {
             if (g.limit_usd == null || g.limit_usd <= 0) { continue; }
             let assignments: { key_hash: string }[] = [];
-            try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch { /* skip */ }
+            try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch (error) {
+              console.log('api.listGuardrailKeyAssignments error: ', error);
+            }
 
             const isAssigned = assignments.some(a => a.key_hash === hash);
             const isWorkspaceGuard = g.workspace_id === detail.workspace_id &&
@@ -136,7 +140,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               ? { name: tracked.name, used: tracked.used, limitUsd: tracked.limitUsd, pct: tracked.pct }
               : null,
           });
-        } catch {
+        } catch (error){
+          console.log('tracker.refreshStatus() error: ', error);
           // Transient error — keep showing last known good data instead of blanking
           if (lastGoodStatus) {
             updateStatusBar(lastGoodStatus);
@@ -149,8 +154,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Auto-refresh on activation ──
   try {
     await vscode.commands.executeCommand('openrouter-tracker.refreshStatus');
-  } catch {
-    // silent
+  } catch (error){
+    console.log('tracker.refreshStatus() error: ', error);
   }
 
   // ── Periodic refresh (every 60s) ──

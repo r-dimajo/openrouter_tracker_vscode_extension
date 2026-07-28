@@ -33,7 +33,11 @@ async function fetchJSON<T>(endpoint: string, init: RequestInit = {}): Promise<T
   const text = await res.text();
   if (!res.ok) {
     let detail = text;
-    try { detail = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ }
+    try { detail = JSON.stringify(JSON.parse(text), null, 2); } catch (error) { 
+      // LOG THE ERROR so it appears in VS Code Developer Tools
+      console.error(`[OpenRouter Tracker] API Error on ${endpoint}:`, error);
+      throw error;
+    }
     throw new Error(`${res.status} ${res.statusText}\n${detail}`);
   }
   return JSON.parse(text);

@@ -326,10 +326,14 @@ async function buildState(
     // fall back to the first available key
     try {
       detail = await api.getKeyDetail(hash);
-    } catch {
+    } catch (error) {
+      console.log('api.getKeyDetail error: ', error);
       hash = keys[0]?.hash ?? null;
       if (hash) {
-        try { detail = await api.getKeyDetail(hash); } catch { detail = null; }
+        try { detail = await api.getKeyDetail(hash); } catch (error) { 
+          console.log('await api.getKeyDetail error: ', error);
+          detail = null; 
+        }
       }
     }
   }
@@ -359,7 +363,9 @@ async function buildState(
       for (const g of guardrails) {
         if (g.limit_usd == null || g.limit_usd <= 0) { continue; }
         let assignments: { key_hash: string }[] = [];
-        try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch { /* skip */ }
+        try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch (error) {
+          console.log('api.listGuardrailKeyAssignments(g.id) error: ', error);
+        }
 
         const isAssigned = assignments.some(a => a.key_hash === hash);
         const isWorkspaceGuard = g.workspace_id === detail?.workspace_id &&
@@ -384,7 +390,9 @@ async function buildState(
     } catch { /* guardrails not available */ }
 
     // Meta
-    try { meta = await api.fetchMeta(); } catch { /* meta not available */ }
+    try { meta = await api.fetchMeta(); } catch (error) {
+      console.log('api.fetchMeta() error: ', error);
+    }
   }
 
   // Persist tracked limit
