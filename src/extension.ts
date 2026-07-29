@@ -51,17 +51,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           let detail;
           try {
             detail = await api.getKeyDetail(hash);
-          } catch {
-            // Stale hash — clear it and try first available key
-            const keys = await api.listKeys();
-            if (keys.length > 0) {
-              hash = keys[0].hash;
-              await context.globalState.update('selectedKeyHash', hash);
-              detail = await api.getKeyDetail(hash);
+          } catch (error: any) {
+            // ONLY assume stale hash if it's a 401 or 404.
+            // Otherwise, it's a Linux networking hiccup — throw it so lastGoodStatus is preserved.
+            if (error.message && (error.message.includes('401') || error.message.includes('404'))) {
+              const keys = await api.listKeys();
+              if (keys.length > 0) {
+                hash = keys[0].hash;
+                await context.globalState.update('selectedKeyHash', hash);
+                detail = await api.getKeyDetail(hash);
+              } else {
+                lastGoodStatus = null;
+                updateStatusBar({ usage: [], budgets: [], tracked: null });
+                return;
+              }
             } else {
-              lastGoodStatus = null;
-              updateStatusBar({ usage: [], budgets: [], tracked: null });
-              return;
+              throw error; 
             }
           }
 
@@ -71,10 +76,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return;
           }
 
-          // Guardrails are best-effort; key-level limit still shows if they fail
+          // FIX: Do not swallow the error. Let it throw so the outer catch preserves lastGoodStatus.
           let guardrails: Guardrail[] = [];
-          try { guardrails = await api.listGuardrails(); } catch (error) {
+          try { 
+            guardrails = await api.listGuardrails(); 
+          } catch (error) {
             console.log('api.listGuardrails() error: ', error);
+            throw error; 
           }
 
           // Usage summary
@@ -107,8 +115,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           for (const g of guardrails) {
             if (g.limit_usd == null || g.limit_usd <= 0) { continue; }
             let assignments: { key_hash: string }[] = [];
-            try { assignments = await api.listGuardrailKeyAssignments(g.id); } catch (error) {
+
+            // FIX: Do not swallow here either.
+            try { 
+              assignments = await api.listGuardrailKeyAssignments(g.id); 
+            } catch (error) {
               console.log('api.listGuardrailKeyAssignments error: ', error);
+              throw error;
             }
 
             const isAssigned = assignments.some(a => a.key_hash === hash);

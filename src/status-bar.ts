@@ -28,7 +28,7 @@ export function createStatusBar(
   onShowDashboard: () => void,
 ): vscode.StatusBarItem {
   statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left,
+    vscode.StatusBarAlignment.Right,
     100,
   );
   statusBarItem.command = 'openrouter-tracker.showDashboard';
